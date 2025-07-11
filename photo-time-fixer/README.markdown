@@ -140,15 +140,3 @@ Processing: 500/1244 photos (744 remaining, 40.19%): [████████�
   exiftool -DateTimeOriginal="2019:01:26 15:01:22" /path/to/file.heic
   ```
 - **Performance**: Processing large directories may be slow due to EXIF/QuickTime checks. The progress bar provides real-time feedback.
-
-## License
-
-MIT License. See [LICENSE](LICENSE) for details.
-
-## Contributing
-
-Contributions are welcome! Please submit a pull request or open an issue for suggestions/bug reports.
-
-## Contact
-
-For questions, contact [<your-username>] on GitHub.

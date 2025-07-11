@@ -140,15 +140,3 @@ Processing: 500/1244 photos (744 remaining, 40.19%): [████████�
   exiftool -DateTimeOriginal="2019:01:26 15:01:22" /路径/文件.heic
   ```
 - **性能**：处理大量文件可能较慢，因需检查 EXIF/QuickTime 元数据。进度条提供实时反馈。
-
-## 许可证
-
-MIT 许可证。详情见 [LICENSE](LICENSE) 文件。
-
-## 贡献
-
-欢迎贡献！请提交 Pull Request 或在 GitHub 上提出 Issue 报告问题或建议。
-
-## 联系方式
-
-如有问题，请在 GitHub 上联系 [<你的用户名>]。
