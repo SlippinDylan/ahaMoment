@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-=
 
 import os
 import re
@@ -11,6 +11,9 @@ import piexif
 from PIL import Image
 import pillow_heif
 import tqdm
+
+# 时间偏差阈值（秒）
+TIME_DELTA_THRESHOLD = 2
 
 def parse_filename_datetime(filename, file_path):
     """
@@ -292,7 +295,7 @@ def process_photos(directory_path, dry_run=True):
     - exif_and_filetime_updated: EXIF/QuickTime元数据和文件时间更新成功
     - filetime_only_updated: 仅文件时间更新
     - unprocessed_files: 文件名、EXIF和文件时间均无法解析
-    - 跳过文件名无法解析但有有效EXIF/QuickTime时间的文件
+    - 跳过时间接近（±60秒）或文件名无法解析但有有效元数据的文件
     显示动态进度条，包含总照片数、已处理数、剩余数和百分比
     
     Args:
@@ -337,28 +340,39 @@ def process_photos(directory_path, dry_run=True):
     # 使用 tqdm 显示进度条
     pbar = tqdm.tqdm(total=total_files, desc="Processing", unit="photo")
     for file_path in media_files:
+        file_ext = file_path.suffix.lower()
         # 从文件名解析时间
         target_datetime = parse_filename_datetime(file_path.name, str(file_path))
         
         if target_datetime:
             # 获取 EXIF/QuickTime 元数据时间和文件修改时间
             metadata_datetime = get_metadata_datetime(str(file_path))
-            file_mtime = datetime.datetime.fromtimestamp(os.stat(file_path).st_mtime)
+            try:
+                file_mtime = datetime.datetime.fromtimestamp(os.stat(file_path).st_mtime)
+            except Exception as e:
+                print(f"无法获取文件时间: {file_path.name} - {e}")
+                file_mtime = None
             
-            # 检查时间是否一致（忽略秒以下精度）
+            # 检查时间是否接近（±60秒）
             metadata_match = (
-                metadata_datetime and
-                metadata_datetime.replace(microsecond=0) == target_datetime.replace(microsecond=0)
-            ) or (not metadata_datetime and file_path.suffix.lower() in ['.png', '.gif'])
-            filetime_match = file_mtime.replace(microsecond=0) == target_datetime.replace(microsecond=0)
+                (metadata_datetime and file_ext not in ['.png', '.gif'] and
+                 abs((metadata_datetime - target_datetime).total_seconds()) <= TIME_DELTA_THRESHOLD)
+                or (file_ext in ['.png', '.gif'] and not metadata_datetime)
+            )
+            filetime_match = (
+                file_mtime and
+                abs((file_mtime - target_datetime).total_seconds()) <= TIME_DELTA_THRESHOLD
+            )
             
             if metadata_match and filetime_match:
-                print(f"时间一致，跳过: {file_path.name} -> {target_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+                print(f"时间接近，跳过: {file_path.name} -> {target_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+                skipped_unchanged += 1
+            elif file_ext in ['.png', '.gif'] and filetime_match:
+                print(f"文件名时间与文件时间接近，跳过: {file_path.name} -> {target_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
                 skipped_unchanged += 1
             else:
                 if dry_run:
                     print(f"[试运行] {file_path.name} -> {target_datetime.strftime('%Y-%m-%d %H:%M:%S')} (元数据 + 文件时间)")
-                    # 假设元数据更新成功，移动到 exif_and_filetime_updated
                     move_file(file_path, exif_dir, dry_run)
                     exif_updated_files += 1
                 else:
@@ -370,21 +384,23 @@ def process_photos(directory_path, dry_run=True):
                         if move_file(file_path, filetime_dir, dry_run):
                             filetime_updated_files += 1
         else:
-            # 文件名无法解析，检查 EXIF/QuickTime 时间
+            # 文件名无法解析，检查 EXIF/QuickTime 时间和文件修改时间
             metadata_datetime = get_metadata_datetime(str(file_path))
-            if metadata_datetime:
-                print(f"文件名无法解析但有元数据时间，跳过: {file_path.name} -> {metadata_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+            try:
+                file_mtime = datetime.datetime.fromtimestamp(os.stat(file_path).st_mtime)
+            except Exception as e:
+                print(f"无法获取文件时间: {file_path.name} - {e}")
+                file_mtime = None
+            
+            if metadata_datetime and file_mtime and (
+                abs((metadata_datetime - file_mtime).total_seconds()) <= TIME_DELTA_THRESHOLD
+            ):
+                print(f"文件名无法解析但元数据与文件时间接近，跳过: {file_path.name} -> {metadata_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
                 skipped_unchanged += 1
             else:
-                # 回退：检查文件系统时间
-                try:
-                    file_mtime = datetime.datetime.fromtimestamp(os.stat(file_path).st_mtime)
-                    print(f"文件名无法解析但有文件时间，跳过: {file_path.name} -> {file_mtime.strftime('%Y-%m-%d %H:%M:%S')}")
-                    skipped_unchanged += 1
-                except Exception as e:
-                    print(f"文件名和元数据均无法解析: {file_path.name} - {e}")
-                    if move_file(file_path, unprocessed_dir, dry_run):
-                        unprocessed_files += 1
+                print(f"文件名和元数据均无法解析或时间不一致: {file_path.name}")
+                if move_file(file_path, unprocessed_dir, dry_run):
+                    unprocessed_files += 1
         
         # 更新进度条描述
         processed_count = exif_updated_files + filetime_updated_files + unprocessed_files + skipped_unchanged
@@ -399,7 +415,7 @@ def process_photos(directory_path, dry_run=True):
     print("-" * 50)
     print(f"处理完成!")
     print(f"总文件数: {total_files}")
-    print(f"未处理（时间一致或有元数据/文件时间）: {skipped_unchanged}")
+    print(f"未处理（时间一致或接近）: {skipped_unchanged}")
     print(f"{'预计' if dry_run else '成功'}更新 EXIF 和文件时间: {exif_updated_files}")
     print(f"{'预计' if dry_run else '成功'}仅更新文件时间: {filetime_updated_files}")
     print(f"{'预计' if dry_run else '已'}移动到 unprocessed_files: {unprocessed_files}")
