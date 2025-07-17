@@ -57,7 +57,7 @@ www.taobao.com：平均[14.56] msec，最高[18] msec，最低[12] msec
 - The script is compatible with macOS due to the use of `sed -E` for regex compatibility.
 
 ## License
-This script is open-source and available under the MIT License.
+ [MIT License](https://github.com/SlippinDylan/ahaMoment/tree/master/LICENSE.md) 
 
 ---
 
@@ -120,4 +120,4 @@ www.taobao.com：平均[14.56] msec，最高[18] msec，最低[12] msec
 - 脚本通过使用 `sed -E` 确保与 macOS 的正则表达式兼容。
 
 ## 许可证
-此脚本为开源软件，遵循 MIT 许可证。
+ [MIT License](https://github.com/SlippinDylan/ahaMoment/tree/master/LICENSE.md) 

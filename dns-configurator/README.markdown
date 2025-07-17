@@ -79,4 +79,4 @@ python3 ~/Library/LaunchAgents/dns_monitor.py debug
   确保 `SPECIFIC_NETWORK_IPS` 和 `SPECIFIC_DNS` 与目标网络的配置匹配。
 
 ## License / 许可证
-MIT License
+ [MIT License](https://github.com/SlippinDylan/ahaMoment/tree/master/LICENSE.md) 

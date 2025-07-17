@@ -87,4 +87,4 @@ python3 ~/Library/LaunchAgents/router_monitor.py debug
   更新 `MIHOMO_APP` 和 `TAILSCALE_APP` 以匹配你安装的应用。
 
 ## License / 许可证
-MIT License
+ [MIT License](https://github.com/SlippinDylan/ahaMoment/tree/master/LICENSE.md) 

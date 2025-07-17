@@ -203,7 +203,7 @@ Issues and Pull Requests are welcome!
 
 ## 📄 License
 
-MIT License
+[MIT License](https://github.com/SlippinDylan/ahaMoment/tree/master/LICENSE.md)
 
 ## 🌟 Support
 
@@ -415,7 +415,7 @@ sudo rm /var/log/chromedriver-update.log
 
 ## 📄 许可证
 
-MIT License
+[MIT License](https://github.com/SlippinDylan/ahaMoment/tree/master/LICENSE.md)
 
 ## 🌟 支持
 
