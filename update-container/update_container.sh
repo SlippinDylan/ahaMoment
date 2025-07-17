@@ -27,6 +27,7 @@ declare -A IMAGE_MAP  # 存储镜像及其使用的容器
 declare -A SERVICE_IMAGE_MAP  # 存储服务到镜像的映射
 declare -a INVALID_COMPOSE_FILES  # 存储无效的 compose 文件
 declare -a UPDATED_IMAGES  # 存储需要更新的镜像
+declare -a CHECKED_IMAGES  # 存储已检查过的镜像（避免重复检查）
 
 # 函数：重试命令
 retry() {
@@ -334,17 +335,27 @@ get_container_name() {
     return 1
 }
 
-# 函数：检查镜像是否有更新（优化版，避免重复拉取）
+# 函数：检查镜像是否有更新（优化版，避免重复检查）
 check_image_update() {
     local image="$1"
     local output
     debug "检查镜像 $image 是否需要更新"
     
     # 检查是否已经检查过该镜像
-    if [[ " ${UPDATED_IMAGES[*]} " =~ " $image " ]]; then
-        debug "镜像 $image 已经检查过，需要更新"
-        return 0
+    if [[ " ${CHECKED_IMAGES[*]} " =~ " $image " ]]; then
+        debug "镜像 $image 已经检查过"
+        # 检查是否在需要更新的列表中
+        if [[ " ${UPDATED_IMAGES[*]} " =~ " $image " ]]; then
+            debug "镜像 $image 需要更新（之前检查过）"
+            return 0
+        else
+            debug "镜像 $image 不需要更新（之前检查过）"
+            return 1
+        fi
     fi
+    
+    # 标记为已检查
+    CHECKED_IMAGES+=("$image")
     
     # 先获取当前镜像的 digest
     local current_digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$image" 2>/dev/null)
@@ -387,10 +398,9 @@ show_update_summary() {
     echo -e "\n===== 更新摘要 ====="
     echo "总镜像数：$(( $(printf '%s\n' "${!IMAGE_MAP[@]}" | grep -v -E '-(running|not-running)$' | wc -l) ))"
     echo "需要更新的镜像数：${#UPDATED_IMAGES[@]}"
-    echo "需要更新的目录数：${#DIRS_TO_UPDATE[@]}"
     
     if [ ${#UPDATED_IMAGES[@]} -gt 0 ]; then
-        echo -e "\n更新的镜像："
+        echo -e "\n需要更新的镜像："
         for image in "${UPDATED_IMAGES[@]}"; do
             echo "- $image"
         done
@@ -510,52 +520,80 @@ collect_images() {
     echo "未运行的镜像数：$not_running_images"
 }
 
-# 函数：更新镜像和容器
-update_images_and_containers() {
+# 函数：检查镜像更新并收集需要更新的服务
+check_and_collect_updates() {
     echo -e "\n检查镜像更新..."
-    total_images_to_update=0
+    
+    # 只检查正在运行的容器对应的镜像
+    local running_images=()
     for image in "${!IMAGE_MAP[@]}"; do
         if [[ ! "$image" =~ -running$ && ! "$image" =~ -not-running$ ]]; then
-            ((total_images_to_update++))
-        fi
-    done
-    current_image=0
-    declare -A DIRS_TO_UPDATE
-    declare -A SERVICES_TO_UPDATE
-
-    for image in "${!IMAGE_MAP[@]}"; do
-        if [[ ! "$image" =~ -running$ && ! "$image" =~ -not-running$ ]]; then
-            ((current_image++))
-            echo -e "\n检查镜像 $image ($current_image/$total_images_to_update)"
-            
-            if [ -n "${IMAGE_MAP[$image-running]}" ]; then
-                if check_image_update "$image"; then
-                    echo "需要更新镜像：$image"
-                    for key in "${!SERVICE_IMAGE_MAP[@]}"; do
-                        if [[ "${SERVICE_IMAGE_MAP[$key]}" == "$image" ]]; then
-                            local dir_service="$key"
-                            local dir="${dir_service%:*}"
-                            local service="${dir_service#*:}"
-                            DIRS_TO_UPDATE["$dir"]=1
-                            SERVICES_TO_UPDATE["$dir_service"]="$image"
-                            debug "标记目录 $dir 的服务 $service 需要更新"
-                        fi
-                    done
-                else
-                    echo "镜像 $image 无需更新，跳过"
-                fi
-            else
-                echo "提示：镜像 $image 无运行容器，跳过更新"
+            # 检查该镜像是否有运行的容器
+            if [[ -n "${IMAGE_MAP[$image-running]}" ]]; then
+                running_images+=("$image")
             fi
         fi
     done
-
-    echo -e "\n需要更新的镜像数：${#UPDATED_IMAGES[@]}"
-    if [ ${#UPDATED_IMAGES[@]} -eq 0 ]; then
-        echo "所有镜像已是最新版本，无需更新"
+    
+    echo "需要检查更新的镜像数：${#running_images[@]}"
+    
+    if [ ${#running_images[@]} -eq 0 ]; then
+        echo "没有正在运行的容器，无需检查更新"
         return
     fi
+    
+    local current_image=0
+    for image in "${running_images[@]}"; do
+        ((current_image++))
+        echo -e "\n检查镜像 $image ($current_image/${#running_images[@]})"
+        
+        # 检查镜像是否需要更新
+        if check_image_update "$image"; then
+            echo "✓ 镜像 $image 需要更新"
+        else
+            echo "✗ 镜像 $image 无需更新"
+        fi
+    done
+    
+    echo -e "\n检查完成。需要更新的镜像数：${#UPDATED_IMAGES[@]}"
+}
 
+# 函数：更新镜像和容器
+update_images_and_containers() {
+    if [ ${#UPDATED_IMAGES[@]} -eq 0 ]; then
+        echo -e "\n所有镜像已是最新版本，无需更新任何容器"
+        return
+    fi
+    
+    echo -e "\n准备更新容器..."
+    
+    # 收集需要更新的目录和服务
+    declare -A DIRS_TO_UPDATE
+    declare -A SERVICES_TO_UPDATE
+    
+    for image in "${UPDATED_IMAGES[@]}"; do
+        echo "处理需要更新的镜像：$image"
+        for key in "${!SERVICE_IMAGE_MAP[@]}"; do
+            if [[ "${SERVICE_IMAGE_MAP[$key]}" == "$image" ]]; then
+                local dir_service="$key"
+                local dir="${dir_service%:*}"
+                local service="${dir_service#*:}"
+                
+                # 检查该服务对应的容器是否正在运行
+                if [[ -n "${IMAGE_MAP[$image-running]}" ]]; then
+                    DIRS_TO_UPDATE["$dir"]=1
+                    SERVICES_TO_UPDATE["$dir_service"]="$image"
+                    debug "标记目录 $dir 的服务 $service 需要更新"
+                fi
+            fi
+        done
+    done
+    
+    if [ ${#DIRS_TO_UPDATE[@]} -eq 0 ]; then
+        echo "没有需要更新的运行中容器"
+        return
+    fi
+    
     echo -e "\n需要更新的目录："
     for dir in "${!DIRS_TO_UPDATE[@]}"; do
         echo "- $dir"
@@ -586,35 +624,33 @@ update_images_and_containers() {
         local project_name=$(basename "$container_dir")
         echo -e "\n更新目录 $container_dir ($current_dir/$total_dirs_to_update)"
         
-        local services_to_pull=""
+        local services_to_update=""
         for key in "${!SERVICES_TO_UPDATE[@]}"; do
             if [[ "$key" =~ ^$container_dir: ]]; then
                 local service="${key#*:}"
-                services_to_pull="$services_to_pull $service"
+                services_to_update="$services_to_update $service"
             fi
         done
         
-        if [[ -n "$services_to_pull" ]]; then
-            echo "需要更新的服务：$services_to_pull"
+        if [[ -n "$services_to_update" ]]; then
+            echo "需要更新的服务：$services_to_update"
             
-            for service in $services_to_pull; do
+            # 拉取更新的镜像
+            for service in $services_to_update; do
                 local image="${SERVICE_IMAGE_MAP[$container_dir:$service]}"
-                if [[ " ${UPDATED_IMAGES[*]} " =~ " $image " ]]; then
-                    echo "正在拉取服务 $service 的镜像 ($image)..."
-                    if ! retry docker-compose -f "$compose_file" -p "$project_name" pull "$service"; then
-                        echo "错误：服务 $service 的镜像拉取失败"
-                        continue
-                    fi
-                else
-                    echo "服务 $service 的镜像 ($image) 无需更新，跳过拉取"
+                echo "正在拉取服务 $service 的镜像 ($image)..."
+                if ! retry docker-compose -f "$compose_file" -p "$project_name" pull "$service"; then
+                    echo "错误：服务 $service 的镜像拉取失败"
+                    continue
                 fi
             done
             
+            # 重启容器
             echo "正在重启容器..."
             if retry docker-compose -f "$compose_file" -p "$project_name" up -d; then
-                echo "成功：目录 $container_dir 的容器已更新"
+                echo "✓ 成功：目录 $container_dir 的容器已更新"
             else
-                echo "错误：目录 $container_dir 的容器重启失败"
+                echo "✗ 错误：目录 $container_dir 的容器重启失败"
             fi
         else
             echo "警告：目录 $container_dir 未找到需要更新的服务"
@@ -625,7 +661,7 @@ update_images_and_containers() {
     for container_dir in $(find . -maxdepth 1 -type d -not -path . -exec test -f {}/docker-compose.yml \; -print | sort); do
         container_dir=${container_dir#./}
         if [[ -z "${DIRS_TO_UPDATE[$container_dir]}" ]]; then
-            echo "- $container_dir（所有镜像已是最新版本）"
+            echo "- $container_dir（镜像已是最新版本或容器未运行）"
         fi
     done
 }
