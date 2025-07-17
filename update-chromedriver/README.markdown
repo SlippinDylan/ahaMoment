@@ -1,7 +1,5 @@
 # ChromeDriver Auto Update Tool
 
-English | [中文](README_CN.md)
-
 A tool to automatically keep ChromeDriver synchronized with Google Chrome versions on Debian/Ubuntu systems.
 
 ## 🎯 Problem Solved
@@ -213,8 +211,6 @@ If this tool helps you, please give it a Star ⭐
 
 
 # ChromeDriver 自动更新工具
-
-[English](README.md) | 中文
 
 一个用于在 Debian/Ubuntu 系统上自动保持 ChromeDriver 与 Google Chrome 版本同步的工具。
 
